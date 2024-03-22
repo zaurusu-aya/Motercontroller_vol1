@@ -87,10 +87,17 @@ ID : 160 + コントローラーID
 * ゲインkd : (0 ～ 65535)が(0 ～ 2000)に対応
 
 data[0] : 減速比の上位bit
+
 data[1] : 減速比の下位bit
+
 data[2] : ゲインkpの上位bit
+
 data[3] : ゲインkpの下位bit
+
 data[4] : ゲインkiの上位bit
+
 data[5] : ゲインkiの下位bit
+
 data[6] : ゲインkdの上位bit
+
 data[6] : ゲインkdの下位bit
