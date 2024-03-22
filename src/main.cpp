@@ -1,3 +1,5 @@
+// 3月21日作成
+
 #include <Arduino.h>
 #include <CAN.h>
 #include "qei.hpp"
@@ -20,12 +22,18 @@ int16_t enccount = 0;
 
 int packetSize = 0; // CAN関係の宣言
 int receivedID = 0;
-int myID = 100;
+int myID = 0; // デフォでは0,newIDで0~7の範囲で変更可能
 
 int dataReceived[9];
 int dataTosend[9];
 
-int ID_newID = 199;
+const int ID_newID = 199; // コマンドたち
+const int ID_enable = 110;
+const int ID_disable = 120;
+const int ID_changeMode = 130;
+const int ID_targetContorl = 140;
+const int ID_originReset = 150;
+const int ID_parameterSet = 160;
 
 uint32_t interval = 0;
 uint32_t preinterval = 0;
@@ -35,11 +43,17 @@ uint32_t jcount = 0;
 float gain_kp = 0.0f;
 float gain_ki = 0.0f;
 float gain_kd = 0.0f;
+float gearRatio = 0.0f;
+
+float targetAngle = 0.0f;
+float targetOmega = 0.0f;
 
 float angle = 0.0f;
 float omega = 0.0f;
 short flg = 0;
 short enableflg = 0;
+short mode = 0;
+int duty = 0;
 
 void setup()
 {
@@ -96,7 +110,10 @@ void moterbreak()
 
 void loop()
 {
-  packetSize = CAN.parsePacket();
+  pcnt_get_counter_value(PCNT_UNIT_0, &enccount); // エンコーダパルス取得
+  pcnt_counter_clear(PCNT_UNIT_0);
+
+  packetSize = CAN.parsePacket(); // CANパケット受信開始
   if (packetSize || CAN.packetId() != -1)
   {
     receivedID = CAN.packetId();
@@ -122,29 +139,94 @@ void loop()
       }
     }
 
-    if (receivedID == myID)
+    if (receivedID == ID_enable + myID) // ID判別
     {
+      flg = ID_enable;
+      enableflg = 1;
     }
 
-    if (receivedID == ID_newID)
+    if (receivedID == ID_disable + myID)
     {
-      myID = dataReceived[0];
+      flg = ID_disable;
+      enableflg = 0;
+    }
+
+    if (receivedID == ID_changeMode + myID)
+    {
+      flg = ID_changeMode;
+      mode = dataReceived[0];
+    }
+
+    if (receivedID == ID_targetContorl + myID) // 受け取った目標値を反映
+    {
+      switch (mode)
+      {
+      case 1: // 角度制御モードの場合
+        targetAngle = (dataReceived[0] * 255 + dataReceived[1]) * (720.0 / 65535) - 360.0;
+        targetOmega = (dataReceived[2] * 255 + dataReceived[3]) * ((200 * PI) / 65535);
+        break;
+
+      case 2: // 角速度制御モードの場合
+        targetOmega = (dataReceived[0] * 255 + dataReceived[1]) * ((200 * PI) / 65535);
+        if (dataReceived[2] == 1)
+        {
+          targetOmega = -targetOmega;
+        }
+        break;
+
+      case 3: // duty制御モードの場合
+        duty = dataReceived[1];
+        if (dataReceived[0] == 0)
+        {
+          duty = -duty;
+        }
+        break;
+
+      default:
+        break;
+      }
+    }
+
+    if (receivedID == ID_originReset + myID) // エンコーダの原点を設定
+    {
+      flg = ID_originReset;
+    }
+
+    if (receivedID == ID_parameterSet + myID) // 受け取ったパラメータを反映
+    {
+      flg = ID_parameterSet;
+
+      gearRatio = (dataReceived[0] * 255 + dataReceived[1]) * (2000.0 / 65535.0);
+
+      gain_kp = (dataReceived[2] * 255 + dataReceived[3]) * (2000.0 / 65535.0);
+
+      gain_ki = (dataReceived[4] * 255 + dataReceived[5]) * (2000.0 / 65535.0);
+
+      gain_kd = (dataReceived[6] * 255 + dataReceived[7]) * (2000.0 / 65535.0);
+    }
+
+    if (receivedID == ID_newID) // IDを変更
+    {
+      if (dataReceived[0] >= 0 && dataReceived[0] < 8)
+      {
+        myID = dataReceived[0];
+      }
     }
   }
 
-  switch (flg)
+  switch (mode)
   {
   case 0: // デフォではdisable
     enableflg = 0;
     break;
 
-  case 1: // 位置制御モード
+  case 1: // 角度制御モード
     break;
 
-  case 2: // duty制御モード
+  case 2: // 速度制御モード
     break;
 
-  case 3: // 速度制御モード
+  case 3: // duty制御モード
     break;
 
   default: // 緊急停止
