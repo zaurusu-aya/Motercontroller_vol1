@@ -43,13 +43,17 @@ uint32_t jcount = 0;
 float gain_kp = 0.0f;
 float gain_ki = 0.0f;
 float gain_kd = 0.0f;
-float gearRatio = 0.0f;
+float gearRatio = 1.0f;
 
 float targetAngle = 0.0f;
 float targetOmega = 0.0f;
 
 float angle = 0.0f;
+float lastAngle = 0.0f;
+float setAngle = 0.0f; // 位置制御の時のみ使う、指定された角度の変数
 float omega = 0.0f;
+float lastOmega = 0.0f;
+float accelaration = 0.0f;
 short flg = 0;
 short enableflg = 0;
 short mode = 0;
@@ -113,6 +117,12 @@ void loop()
   pcnt_get_counter_value(PCNT_UNIT_0, &enccount); // エンコーダパルス取得
   pcnt_counter_clear(PCNT_UNIT_0);
 
+  lastAngle = angle; // 角度の計算
+  angle += (enccount * (1.0 / 8192.0) * 2.0 * PI) / gearRatio;
+  lastOmega = omega;
+  omega = (lastAngle - angle) * (1000000.0 / control_period);
+  accelaration = (lastOmega - omega) * (1000000.0 / control_period);
+
   packetSize = CAN.parsePacket(); // CANパケット受信開始
   if (packetSize || CAN.packetId() != -1)
   {
@@ -162,12 +172,12 @@ void loop()
       switch (mode)
       {
       case 1: // 角度制御モードの場合
-        targetAngle = (dataReceived[0] * 255 + dataReceived[1]) * (720.0 / 65535) - 360.0;
-        targetOmega = (dataReceived[2] * 255 + dataReceived[3]) * ((200 * PI) / 65535);
+        setAngle = (dataReceived[0] * 255 + dataReceived[1]) * (720.0 / 65535.0) - 360.0;
+        targetOmega = (dataReceived[2] * 255 + dataReceived[3]) * ((200.0 * PI) / 65535.0);
         break;
 
       case 2: // 角速度制御モードの場合
-        targetOmega = (dataReceived[0] * 255 + dataReceived[1]) * ((200 * PI) / 65535);
+        targetOmega = (dataReceived[0] * 255 + dataReceived[1]) * ((200.0 * PI) / 65535.0);
         if (dataReceived[2] == 1)
         {
           targetOmega = -targetOmega;
@@ -221,12 +231,32 @@ void loop()
     break;
 
   case 1: // 角度制御モード
+    if (abs((setAngle - targetAngle) * (1000000.0 / control_period)) > targetOmega)
+    {
+      if ((setAngle - targetAngle) > 0)
+      {
+        targetAngle += targetOmega / (1000000.0 / control_period);
+      }
+      else
+      {
+        targetAngle -= targetOmega / (1000000.0 / control_period);
+      }
+    }
+    else
+    {
+      targetAngle = setAngle;
+    }
+    duty = (targetAngle - angle) * gain_kp - (omega * gain_kd);
+    rotate(duty);
     break;
 
   case 2: // 速度制御モード
+    duty = (targetOmega - omega) * gain_kp - (accelaration * gain_kd);
+    rotate(duty);
     break;
 
   case 3: // duty制御モード
+    rotate(duty);
     break;
 
   default: // 緊急停止
