@@ -57,7 +57,7 @@ float accelaration = 0.0f;
 short flg = 0;
 short enableflg = 0;
 short mode = 0;
-int duty = 0;
+float duty = 0.0f;
 
 void setup()
 {
@@ -247,6 +247,14 @@ void loop()
       targetAngle = setAngle;
     }
     duty = (targetAngle - angle) * gain_kp - (omega * gain_kd);
+
+    if(duty > 1.0){
+      duty = 1.0;
+    }
+    if(duty < -1.0){
+      duty = -1.0;
+    }
+
     rotate(duty);
     break;
 
